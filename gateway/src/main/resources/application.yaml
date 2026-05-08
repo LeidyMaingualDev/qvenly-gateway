@@ -20,23 +20,36 @@ spring:
             - Path=/auth/**
           filters:
             - StripPrefix=0
-      globalcors:
-        cors-configurations:
-          '[/**]':
-            allowedOrigins:
-              - "http://localhost:4200"
-            allowedMethods:
-              - GET
-              - POST
-              - PUT
-              - DELETE
-              - OPTIONS
-            allowedHeaders:
-              - "*"
-            allowCredentials: true
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+
+jwt:
+  secret: dGVzdFNlY3JldEtleUZvckp3dEF1dGhTZXJ2aWNlMTIzNDU2Nzg5MA==
+
+security:
+  public-routes:
+    - path: /auth/login
+      method: POST
+    - path: /auth/register
+      method: POST
+    - path: /auth/forgot-password
+      method: POST
+    - path: /auth/reset-password
+      method: POST
+    - path: /auth/refresh-token
+      method: POST
+    - path: /actuator/health
+      method: GET
+    - path: /actuator/info
+      method: GET
+  permissions:
+    - path: /auth/logout
+      method: POST
+      role: USER
+    - path: /auth/logout
+      method: POST
+      role: ADMIN
