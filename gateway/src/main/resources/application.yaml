@@ -20,6 +20,7 @@ spring:
             - Path=/auth/**
           filters:
             - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
 
 management:
   endpoints:
