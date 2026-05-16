@@ -1,0 +1,89 @@
+server:
+  port: 9000  # Puerto del Gateway, no cambiar salvo conflicto
+
+spring:
+  application:
+    name: gateway
+
+  cloud:
+    consul:
+      host: localhost
+      port: 8500  # Puerto por defecto de Consul, debe estar corriendo localmente
+      discovery:
+        service-name: gateway
+        health-check-path: /actuator/health
+        health-check-interval: 10s
+
+    gateway:
+      routes:
+        # Ruta hacia el auth-service
+        # "lb://auth-service" significa que Consul resuelve la IP automáticamente
+        # El auth-service debe estar corriendo y registrado en Consul con ese nombre
+        - id: auth-service
+          uri: lb://auth-service
+          predicates:
+            - Path=/auth/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
+        # Aquí agregar nuevos microservicios cuando se creen, ejemplo:
+        # - id: events-service
+        #   uri: lb://events-service
+        #   predicates:
+        #     - Path=/events/**
+        #   filters:
+        #     - StripPrefix=0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+jwt:
+  # IMPORTANTE: debe ser exactamente el mismo secreto que tiene el auth-service
+  # Si son distintos, el gateway no podrá validar los tokens y todo dará 401
+  # Generar con: openssl rand -base64 32
+  secret: TU_SECRET_BASE64_IGUAL_AL_DE_AUTH_SERVICE
+
+# ─────────────────────────────────────────────────────────────
+# Configuración de seguridad del Gateway
+# ─────────────────────────────────────────────────────────────
+security:
+
+  # Rutas que NO requieren token JWT para ser accedidas
+  public-routes:
+    - path: /auth/login
+      method: POST
+    - path: /auth/register
+      method: POST
+    - path: /auth/forgot-password
+      method: POST
+    - path: /auth/reset-password
+      method: POST
+    - path: /auth/refresh-token
+      method: POST
+    - path: /actuator/health
+      method: GET
+    - path: /actuator/info
+      method: GET
+
+  # Rutas protegidas: requieren token JWT y el rol indicado
+  # Agregar aquí cada ruta nueva que se proteja con rol
+  # Los roles disponibles son los que existen en la tabla "roles" del auth-service
+  permissions:
+    - path: /auth/logout
+      method: POST
+      role: USER
+    - path: /auth/logout
+      method: POST
+      role: ADMIN
+
+    # Ejemplo para cuando agregues nuevos microservicios:
+    # - path: /events/**
+    #   method: "*"
+    #   role: USER
+    # - path: /admin/**
+    #   method: "*"
+    #   role: ADMIN
