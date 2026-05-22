@@ -21,6 +21,14 @@ spring:
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+        - id: ms-plans-service
+          uri: lb://ms-plans-service
+          predicates:
+            - Path=/api/plans/**, /api/user-plans/**, /api/plan-history/**, /api/plan-audit/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
 
 management:
   endpoints:
@@ -47,10 +55,67 @@ security:
       method: GET
     - path: /actuator/info
       method: GET
+    - path: /api/plans
+      method: GET
+    - path: /api/plans/**
+      method: GET
   permissions:
     - path: /auth/logout
       method: POST
       role: USER
     - path: /auth/logout
       method: POST
+      role: ADMIN
+    # CRUD planes - ADMIN
+    - path: /api/plans
+      method: POST
+      role: ADMIN
+    - path: /api/plans/**
+      method: PUT
+      role: ADMIN
+    - path: /api/plans/**
+      method: DELETE
+      role: ADMIN
+    - path: /api/plans
+      method: GET
+      role: ADMIN
+    - path: /api/plans/**
+      method: GET
+      role: ADMIN
+    - path: /api/plans/filter
+      method: GET
+      role: ADMIN
+    # Asignación - ADMIN
+    - path: /api/user-plans/assign
+      method: POST
+      role: ADMIN
+    # Adquisición - ORGANIZER
+    - path: /api/user-plans/acquire
+      method: POST
+      role: ORGANIZER
+    # Renovación - ADMIN y ORGANIZER
+    - path: /api/user-plans/**/renew
+      method: PUT
+      role: ADMIN
+    - path: /api/user-plans/**/renew
+      method: PUT
+      role: ORGANIZER
+    # Consulta plan de un organizador - ADMIN y ORGANIZER
+    - path: /api/user-plans/user/**
+      method: GET
+      role: ADMIN
+    - path: /api/user-plans/user/**
+      method: GET
+      role: ORGANIZER
+    # Historial - ADMIN y ORGANIZER
+    - path: /api/plan-history/**
+      method: GET
+      role: ADMIN
+    - path: /api/plan-history/**
+      method: GET
+      role: ORGANIZER
+
+    # Auditoría - ADMIN
+    - path: /api/plan-audit/**
+      method: GET
       role: ADMIN
