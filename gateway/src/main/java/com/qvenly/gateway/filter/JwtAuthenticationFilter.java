@@ -127,10 +127,12 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         var claims = jwtService.extractAllClaims(token);
         String role = claims.get("role", String.class);
         String email = claims.getSubject();
+        String userId = claims.get("userId", String.class);
 
         return exchange.mutate().request(r -> r
                 .header("X-User-Email", email != null ? email : "")
                 .header("X-Rol", role != null ? role : "")
+                .header("X-User-Id", userId != null ? userId : "")
         ).build();
     }
 
