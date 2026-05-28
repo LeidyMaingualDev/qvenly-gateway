@@ -21,8 +21,8 @@ spring:
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-        - id: ms-plans-service
-          uri: lb://ms-plans-service
+        - id: qv-ms-plans
+          uri: lb://qv-ms-plans
           predicates:
             - Path=/api/plans/**, /api/user-plans/**, /api/plan-history/**, /api/plan-audit/**
           filters:
@@ -94,7 +94,7 @@ security:
     # Adquisición - ORGANIZER
     - path: /api/user-plans/acquire
       method: POST
-      role: ORGANIZER
+      role: USER
     # Renovación - ADMIN y ORGANIZER
     - path: /api/user-plans/**/renew
       method: PUT
@@ -118,6 +118,13 @@ security:
       role: ORGANIZER
 
     # Auditoría - ADMIN
+    - path: /api/plan-audit
+      method: GET
+      role: ADMIN
     - path: /api/plan-audit/**
+      method: GET
+      role: ADMIN
+    #Dashboard
+    - path: /admin/dashboard/**
       method: GET
       role: ADMIN
