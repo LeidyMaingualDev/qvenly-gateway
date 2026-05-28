@@ -51,6 +51,8 @@ security:
       method: POST
     - path: /auth/refresh-token
       method: POST
+    - path: /auth/refresh-from-cookie
+      method: POST
     - path: /auth/confirm-email
       method: GET
     - path: /actuator/health
