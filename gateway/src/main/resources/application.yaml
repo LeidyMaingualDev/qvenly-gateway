@@ -24,7 +24,7 @@ spring:
         - id: qv-ms-plans
           uri: lb://qv-ms-plans
           predicates:
-            - Path=/api/plans/**, /api/user-plans/**, /api/plan-history/**, /api/plan-audit/**
+            - Path=/api/plans/**, /api/user-plans/**, /api/plan-history/**, /api/plan-audit/**, /admin/dashboard/**
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
@@ -103,21 +103,21 @@ security:
       role: ADMIN
     - path: /api/user-plans/**/renew
       method: PUT
-      role: ORGANIZER
+      role: USER
     # Consulta plan de un organizador - ADMIN y ORGANIZER
     - path: /api/user-plans/user/**
       method: GET
       role: ADMIN
     - path: /api/user-plans/user/**
       method: GET
-      role: ORGANIZER
+      role: USER
     # Historial - ADMIN y ORGANIZER
     - path: /api/plan-history/**
       method: GET
       role: ADMIN
     - path: /api/plan-history/**
       method: GET
-      role: ORGANIZER
+      role: USER
 
     # Auditoría - ADMIN
     - path: /api/plan-audit
