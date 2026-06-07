@@ -9,9 +9,8 @@ import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
-import org.springframework.http.HttpCookie;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
@@ -24,6 +23,54 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 
+/**
+ * Filtro global del Gateway que intercepta las respuestas de autenticación y convierte
+ * los tokens JWT del body JSON en cookies {@code HttpOnly}, protegiéndolos del acceso
+ * de JavaScript en el frontend.
+ *
+ * <h2>Problema que resuelve</h2>
+ * <p>Si los tokens JWT viajan en el cuerpo JSON de la respuesta, cualquier script
+ * JavaScript puede acceder a ellos mediante {@code localStorage} o {@code sessionStorage},
+ * exponiéndolos a ataques XSS. Al moverlos a cookies {@code HttpOnly}, solo el navegador
+ * puede leerlas y enviarlas automáticamente — ningún script puede acceder a su valor.</p>
+ *
+ * <h2>Rutas interceptadas</h2>
+ * <ul>
+ *   <li>{@code /auth/login} — login con email y contraseña.</li>
+ *   <li>{@code /auth/register} — registro de nuevo usuario.</li>
+ *   <li>{@code /auth/refresh-from-cookie} — renovación automática del interceptor Angular.</li>
+ * </ul>
+ *
+ * <h2>Problema de chunked transfer encoding resuelto</h2>
+ * <p>Las respuestas HTTP pueden llegar fragmentadas en múltiples chunks. La versión anterior
+ * procesaba cada chunk por separado, lo que causaba el error
+ * {@code "Unexpected end-of-input"} al intentar parsear JSON incompleto.
+ * Esta versión usa {@link DataBufferUtils#join} para acumular todos los fragments
+ * en un único buffer antes de parsear.</p>
+ *
+ * <h2>Transformación aplicada</h2>
+ * <ol>
+ *   <li>Acumula todos los chunks de la respuesta en un único buffer.</li>
+ *   <li>Parsea el JSON y extrae {@code data.token} y {@code data.refreshToken}.</li>
+ *   <li>Crea dos cookies {@code HttpOnly} con {@code SameSite=Lax}:
+ *     <ul>
+ *       <li>{@code access_token} — duración 15 minutos (igual que el token JWT).</li>
+ *       <li>{@code refresh_token} — duración 7 días.</li>
+ *     </ul>
+ *   </li>
+ *   <li>Elimina {@code token} y {@code refreshToken} del body para que no viajen
+ *       en la respuesta visible al cliente.</li>
+ *   <li>Ajusta el {@code Content-Length} al nuevo tamaño del body modificado.</li>
+ * </ol>
+ *
+ * <p><b>Nota sobre {@code secure=false}</b>: en producción con HTTPS cambiar a
+ * {@code secure(true)} para garantizar que las cookies solo se envíen en
+ * conexiones cifradas.</p>
+ *
+ * @author Leidy Martinez
+ * @version 2.0
+ * @see JwtAuthenticationFilter
+ */
 @Slf4j
 @Component
 public class AuthResponseCookieFilter implements GlobalFilter, Ordered {
@@ -31,13 +78,30 @@ public class AuthResponseCookieFilter implements GlobalFilter, Ordered {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final DataBufferFactory bufferFactory = new DefaultDataBufferFactory();
 
-    private static final List<String> AUTH_PATHS = List.of("/auth/login", "/auth/register");
+    /**
+     * Rutas cuyas respuestas son interceptadas para extraer y convertir los tokens en cookies.
+     * Incluye login, registro y renovación automática del interceptor Angular.
+     */
+    private static final List<String> AUTH_PATHS = List.of(
+            "/auth/login",
+            "/auth/register",
+            "/auth/refresh-from-cookie"
+    );
 
+    /**
+     * Lógica principal del filtro. Envuelve la respuesta con un {@link ServerHttpResponseDecorator}
+     * que intercepta el body y realiza la transformación token → cookie.
+     *
+     * <p>Para rutas que no están en {@link #AUTH_PATHS}, la petición pasa sin modificaciones.</p>
+     *
+     * @param exchange intercambio HTTP reactivo con la petición y la respuesta
+     * @param chain    cadena de filtros del Gateway
+     * @return {@link Mono} que completa cuando la respuesta (posiblemente modificada) es enviada
+     */
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = exchange.getRequest().getURI().getPath();
 
-        // Solo interceptar login y register
         boolean isAuthPath = AUTH_PATHS.stream().anyMatch(path::equals);
         if (!isAuthPath) {
             return chain.filter(exchange);
@@ -46,73 +110,97 @@ public class AuthResponseCookieFilter implements GlobalFilter, Ordered {
         ServerHttpResponse originalResponse = exchange.getResponse();
         ServerHttpResponseDecorator decoratedResponse = new ServerHttpResponseDecorator(originalResponse) {
 
+            /**
+             * Intercepta la escritura del body de la respuesta.
+             *
+             * <p>Acumula todos los chunks con {@link DataBufferUtils#join} antes de procesar,
+             * evitando el error de JSON incompleto que ocurría con el procesamiento chunk a chunk.</p>
+             *
+             * @param body publisher de buffers con el contenido de la respuesta
+             * @return Mono que completa cuando el body modificado es enviado al cliente
+             */
             @Override
             public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
-                if (body instanceof Flux) {
-                    Flux<? extends DataBuffer> fluxBody = (Flux<? extends DataBuffer>) body;
-                    return super.writeWith(fluxBody.map(dataBuffer -> {
-                        byte[] content = new byte[dataBuffer.readableByteCount()];
-                        dataBuffer.read(content);
+                return DataBufferUtils.join(Flux.from(body))
+                        .flatMap(dataBuffer -> {
+                            byte[] content = new byte[dataBuffer.readableByteCount()];
+                            dataBuffer.read(content);
+                            DataBufferUtils.release(dataBuffer);
 
-                        try {
-                            String bodyStr = new String(content, StandardCharsets.UTF_8);
-                            JsonNode root = objectMapper.readTree(bodyStr);
-                            JsonNode data = root.path("data");
+                            try {
+                                String bodyStr = new String(content, StandardCharsets.UTF_8);
+                                JsonNode root = objectMapper.readTree(bodyStr);
+                                JsonNode data = root.path("data");
 
-                            if (!data.isMissingNode()) {
-                                String token = data.path("token").asText(null);
-                                String refreshToken = data.path("refreshToken").asText(null);
+                                if (!data.isMissingNode()) {
+                                    String token        = data.path("token").asText(null);
+                                    String refreshToken = data.path("refreshToken").asText(null);
 
-                                if (token != null && !token.equals("null")) {
-                                    // Agregar cookies HttpOnly desde el gateway
-                                    originalResponse.addCookie(
-                                            ResponseCookie.from("access_token", token)
-                                                    .httpOnly(true)
-                                                    .secure(false)
-                                                    .path("/")
-                                                    .maxAge(Duration.ofDays(1))
-                                                    .sameSite("Lax")
-                                                    .build()
-                                    );
+                                    // Escribir access_token como cookie HttpOnly
+                                    if (token != null && !token.equals("null")) {
+                                        originalResponse.addCookie(
+                                                ResponseCookie.from("access_token", token)
+                                                        .httpOnly(true)
+                                                        .secure(false)       // true en producción
+                                                        .path("/")
+                                                        .maxAge(Duration.ofMinutes(15))
+                                                        .sameSite("Lax")
+                                                        .build()
+                                        );
+                                    }
+
+                                    // Escribir refresh_token como cookie HttpOnly
+                                    if (refreshToken != null && !refreshToken.equals("null")) {
+                                        originalResponse.addCookie(
+                                                ResponseCookie.from("refresh_token", refreshToken)
+                                                        .httpOnly(true)
+                                                        .secure(false)       // true en producción
+                                                        .path("/")
+                                                        .maxAge(Duration.ofDays(7))
+                                                        .sameSite("Lax")
+                                                        .build()
+                                        );
+                                    }
+
+                                    // Eliminar tokens del body — no deben viajar al cliente
+                                    JsonNode modifiedData = objectMapper.readTree(bodyStr);
+                                    ((com.fasterxml.jackson.databind.node.ObjectNode) modifiedData.path("data"))
+                                            .remove("token");
+                                    ((com.fasterxml.jackson.databind.node.ObjectNode) modifiedData.path("data"))
+                                            .remove("refreshToken");
+
+                                    byte[] modifiedContent = objectMapper.writeValueAsBytes(modifiedData);
+                                    originalResponse.getHeaders().setContentLength(modifiedContent.length);
+                                    return super.writeWith(Mono.just(bufferFactory.wrap(modifiedContent)));
                                 }
-
-                                if (refreshToken != null && !refreshToken.equals("null")) {
-                                    originalResponse.addCookie(
-                                            ResponseCookie.from("refresh_token", refreshToken)
-                                                    .httpOnly(true)
-                                                    .secure(false)
-                                                    .path("/")
-                                                    .maxAge(Duration.ofDays(7))
-                                                    .sameSite("Lax")
-                                                    .build()
-                                    );
-                                }
-
-                                // Eliminar tokens del body
-                                JsonNode modifiedData = objectMapper.readTree(bodyStr);
-                                ((com.fasterxml.jackson.databind.node.ObjectNode) modifiedData.path("data"))
-                                        .remove("token");
-                                ((com.fasterxml.jackson.databind.node.ObjectNode) modifiedData.path("data"))
-                                        .remove("refreshToken");
-
-                                byte[] modifiedContent = objectMapper.writeValueAsBytes(modifiedData);
-                                originalResponse.getHeaders().setContentLength(modifiedContent.length);
-                                return bufferFactory.wrap(modifiedContent);
+                            } catch (Exception e) {
+                                log.error("Error procesando respuesta auth: {}", e.getMessage());
                             }
-                        } catch (Exception e) {
-                            log.error("Error procesando respuesta auth: {}", e.getMessage());
-                        }
 
-                        return bufferFactory.wrap(content);
-                    }));
-                }
-                return super.writeWith(body);
+                            originalResponse.getHeaders().setContentLength(content.length);
+                            return super.writeWith(Mono.just(bufferFactory.wrap(content)));
+                        });
             }
         };
 
         return chain.filter(exchange.mutate().response(decoratedResponse).build());
     }
 
+    /**
+     * Define la prioridad de ejecución de este filtro en la cadena del Gateway.
+     *
+     * <p>Orden {@code -2}: máxima prioridad entre los filtros de seguridad, garantizando
+     * que el decorator de respuesta esté instalado antes de que cualquier otro filtro
+     * procese la petición y su respuesta. El orden completo es:</p>
+     * <ol>
+     *   <li>{@code -2} — {@link AuthResponseCookieFilter} (este filtro)</li>
+     *   <li>{@code -1} — {@code CookieRelayFilter}</li>
+     *   <li>{@code  1} — {@code JwtAuthenticationFilter}</li>
+     *   <li>{@code  2} — {@code AuthorizationFilter}</li>
+     * </ol>
+     *
+     * @return prioridad {@code -2}
+     */
     @Override
     public int getOrder() {
         return -2;
