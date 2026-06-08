@@ -9,9 +9,8 @@ import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
-import org.springframework.http.HttpCookie;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
@@ -90,7 +89,6 @@ public class AuthResponseCookieFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = exchange.getRequest().getURI().getPath();
 
-        // Solo interceptar login y register
         boolean isAuthPath = AUTH_PATHS.stream().anyMatch(path::equals);
         if (!isAuthPath) {
             return chain.filter(exchange);
@@ -99,46 +97,68 @@ public class AuthResponseCookieFilter implements GlobalFilter, Ordered {
         ServerHttpResponse originalResponse = exchange.getResponse();
         ServerHttpResponseDecorator decoratedResponse = new ServerHttpResponseDecorator(originalResponse) {
 
+            /**
+             * Intercepta la escritura del body de la respuesta.
+             *
+             * <p>Acumula todos los chunks con {@link DataBufferUtils#join} antes de procesar,
+             * evitando el error de JSON incompleto que ocurría con el procesamiento chunk a chunk.</p>
+             *
+             * @param body publisher de buffers con el contenido de la respuesta
+             * @return Mono que completa cuando el body modificado es enviado al cliente
+             */
             @Override
             public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
-                if (body instanceof Flux) {
-                    Flux<? extends DataBuffer> fluxBody = (Flux<? extends DataBuffer>) body;
-                    return super.writeWith(fluxBody.map(dataBuffer -> {
-                        byte[] content = new byte[dataBuffer.readableByteCount()];
-                        dataBuffer.read(content);
+                return DataBufferUtils.join(Flux.from(body))
+                        .flatMap(dataBuffer -> {
+                            byte[] content = new byte[dataBuffer.readableByteCount()];
+                            dataBuffer.read(content);
+                            DataBufferUtils.release(dataBuffer);
 
-                        try {
-                            String bodyStr = new String(content, StandardCharsets.UTF_8);
-                            JsonNode root = objectMapper.readTree(bodyStr);
-                            JsonNode data = root.path("data");
+                            try {
+                                String bodyStr = new String(content, StandardCharsets.UTF_8);
+                                JsonNode root = objectMapper.readTree(bodyStr);
+                                JsonNode data = root.path("data");
 
-                            if (!data.isMissingNode()) {
-                                String token = data.path("token").asText(null);
-                                String refreshToken = data.path("refreshToken").asText(null);
+                                if (!data.isMissingNode()) {
+                                    String token        = data.path("token").asText(null);
+                                    String refreshToken = data.path("refreshToken").asText(null);
 
-                                if (token != null && !token.equals("null")) {
-                                    // Agregar cookies HttpOnly desde el gateway
-                                    originalResponse.addCookie(
-                                            ResponseCookie.from("access_token", token)
-                                                    .httpOnly(true)
-                                                    .secure(false)
-                                                    .path("/")
-                                                    .maxAge(Duration.ofDays(1))
-                                                    .sameSite("Lax")
-                                                    .build()
-                                    );
-                                }
+                                    // Escribir access_token como cookie HttpOnly
+                                    if (token != null && !token.equals("null")) {
+                                        originalResponse.addCookie(
+                                                ResponseCookie.from("access_token", token)
+                                                        .httpOnly(true)
+                                                        .secure(false)       // true en producción
+                                                        .path("/")
+                                                        .maxAge(Duration.ofMinutes(15))
+                                                        .sameSite("Lax")
+                                                        .build()
+                                        );
+                                    }
 
-                                if (refreshToken != null && !refreshToken.equals("null")) {
-                                    originalResponse.addCookie(
-                                            ResponseCookie.from("refresh_token", refreshToken)
-                                                    .httpOnly(true)
-                                                    .secure(false)
-                                                    .path("/")
-                                                    .maxAge(Duration.ofDays(7))
-                                                    .sameSite("Lax")
-                                                    .build()
-                                    );
+                                    // Escribir refresh_token como cookie HttpOnly
+                                    if (refreshToken != null && !refreshToken.equals("null")) {
+                                        originalResponse.addCookie(
+                                                ResponseCookie.from("refresh_token", refreshToken)
+                                                        .httpOnly(true)
+                                                        .secure(false)       // true en producción
+                                                        .path("/")
+                                                        .maxAge(Duration.ofDays(7))
+                                                        .sameSite("Lax")
+                                                        .build()
+                                        );
+                                    }
+
+                                    // Eliminar tokens del body — no deben viajar al cliente
+                                    JsonNode modifiedData = objectMapper.readTree(bodyStr);
+                                    ((com.fasterxml.jackson.databind.node.ObjectNode) modifiedData.path("data"))
+                                            .remove("token");
+                                    ((com.fasterxml.jackson.databind.node.ObjectNode) modifiedData.path("data"))
+                                            .remove("refreshToken");
+
+                                    byte[] modifiedContent = objectMapper.writeValueAsBytes(modifiedData);
+                                    originalResponse.getHeaders().setContentLength(modifiedContent.length);
+                                    return super.writeWith(Mono.just(bufferFactory.wrap(modifiedContent)));
                                 }
 
                                 // Eliminar tokens del body para no exponerlos al cliente
@@ -152,14 +172,10 @@ public class AuthResponseCookieFilter implements GlobalFilter, Ordered {
                                 originalResponse.getHeaders().setContentLength(modifiedContent.length);
                                 return bufferFactory.wrap(modifiedContent);
                             }
-                        } catch (Exception e) {
-                            log.error("Error procesando respuesta auth: {}", e.getMessage());
-                        }
 
-                        return bufferFactory.wrap(content);
-                    }));
-                }
-                return super.writeWith(body);
+                            originalResponse.getHeaders().setContentLength(content.length);
+                            return super.writeWith(Mono.just(bufferFactory.wrap(content)));
+                        });
             }
         };
 
