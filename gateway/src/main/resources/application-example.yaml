@@ -1,5 +1,5 @@
 server:
-  port: 9000  # Puerto del Gateway, no cambiar salvo conflicto
+  port: 9000
 
 spring:
   application:
@@ -8,17 +8,30 @@ spring:
   cloud:
     consul:
       host: localhost
-      port: 8500  # Puerto por defecto de Consul, debe estar corriendo localmente
+      port: 8500
       discovery:
         service-name: gateway
         health-check-path: /actuator/health
         health-check-interval: 10s
 
     gateway:
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:4200"
+              - "http://localhost:61697"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
+
       routes:
-        # Ruta hacia el auth-service
-        # "lb://auth-service" significa que Consul resuelve la IP automáticamente
-        # El auth-service debe estar corriendo y registrado en Consul con ese nombre
         - id: auth-service
           uri: lb://auth-service
           predicates:
@@ -27,13 +40,45 @@ spring:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
 
-        # Aquí agregar nuevos microservicios cuando se creen, ejemplo:
-        # - id: events-service
-        #   uri: lb://events-service
-        #   predicates:
-        #     - Path=/events/**
-        #   filters:
-        #     - StripPrefix=0
+        - id: qv-ms-plans
+          uri: lb://qv-ms-plans
+          predicates:
+            - Path=/api/plans/**, /api/user-plans/**, /api/plan-history/**, /api/plan-audit/**, /admin/dashboard/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
+        - id: qv-ms-plans-dashboard
+          uri: lb://qv-ms-plans
+          predicates:
+            - Path=/admin/dashboard/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
+        - id: qv-ms-plans-report
+          uri: lb://qv-ms-plans
+          predicates:
+            - Path=/admin/report/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
+        - id: qv-ms-payments
+          uri: lb://qv-ms-payments
+          predicates:
+            - Path=/payments/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
+        - id: auth-oauth2
+          uri: lb://auth-service
+          predicates:
+            - Path=/oauth2/**, /login/oauth2/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
 
 management:
   endpoints:
@@ -42,36 +87,41 @@ management:
         include: health,info
 
 jwt:
-  # IMPORTANTE: debe ser exactamente el mismo secreto que tiene el auth-service
-  # Si son distintos, el gateway no podrá validar los tokens y todo dará 401
-  # Generar con: openssl rand -base64 32
-  secret: TU_SECRET_BASE64_IGUAL_AL_DE_AUTH_SERVICE
+  secret: YOUR_JWT_SECRET_BASE64  # debe ser igual al configurado en auth-service
 
-# ─────────────────────────────────────────────────────────────
-# Configuración de seguridad del Gateway
-# ─────────────────────────────────────────────────────────────
 security:
-
-  # Rutas que NO requieren token JWT para ser accedidas
   public-routes:
     - path: /auth/login
       method: POST
     - path: /auth/register
       method: POST
+    - path: /oauth2/**
+      method: GET
+    - path: /login/oauth2/**
+      method: GET
+    - path: /oauth2/**
+      method: POST
+    - path: /login/oauth2/**
+      method: POST
     - path: /auth/forgot-password
       method: POST
     - path: /auth/reset-password
       method: POST
-    - path: /auth/refresh-token
+    - path: /auth/refresh-from-cookie
       method: POST
+    - path: /auth/confirm-email
+      method: GET
     - path: /actuator/health
       method: GET
     - path: /actuator/info
       method: GET
+    - path: /api/plans
+      method: GET
+    - path: /api/plans/**
+      method: GET
+    - path: /payments/webhook
+      method: POST
 
-  # Rutas protegidas: requieren token JWT y el rol indicado
-  # Agregar aquí cada ruta nueva que se proteja con rol
-  # Los roles disponibles son los que existen en la tabla "roles" del auth-service
   permissions:
     - path: /auth/logout
       method: POST
@@ -79,11 +129,73 @@ security:
     - path: /auth/logout
       method: POST
       role: ADMIN
-
-    # Ejemplo para cuando agregues nuevos microservicios:
-    # - path: /events/**
-    #   method: "*"
-    #   role: USER
-    # - path: /admin/**
-    #   method: "*"
-    #   role: ADMIN
+    # CRUD planes - ADMIN
+    - path: /api/plans
+      method: POST
+      role: ADMIN
+    - path: /api/plans/**
+      method: PUT
+      role: ADMIN
+    - path: /api/plans/**
+      method: DELETE
+      role: ADMIN
+    - path: /api/plans
+      method: GET
+      role: ADMIN
+    - path: /api/plans/**
+      method: GET
+      role: ADMIN
+    - path: /api/plans/filter
+      method: GET
+      role: ADMIN
+    # Asignación - ADMIN
+    - path: /api/user-plans/assign
+      method: POST
+      role: ADMIN
+    # Adquisición - USER
+    - path: /api/user-plans/acquire
+      method: POST
+      role: USER
+    # Renovación - ADMIN y USER
+    - path: /api/user-plans/**/renew
+      method: PUT
+      role: ADMIN
+    - path: /api/user-plans/**/renew
+      method: PUT
+      role: USER
+    # Consulta plan de un organizador
+    - path: /api/user-plans/user/**
+      method: GET
+      role: ADMIN
+    - path: /api/user-plans/user/**
+      method: GET
+      role: USER
+    # Historial
+    - path: /api/plan-history/**
+      method: GET
+      role: ADMIN
+    - path: /api/plan-history/**
+      method: GET
+      role: USER
+    # Auditoría - ADMIN
+    - path: /api/plan-audit
+      method: GET
+      role: ADMIN
+    - path: /api/plan-audit/**
+      method: GET
+      role: ADMIN
+    # Dashboard - ADMIN
+    - path: /admin/dashboard/**
+      method: GET
+      role: ADMIN
+    # Report - ADMIN
+    - path: /admin/report/**
+      method: GET
+      role: ADMIN
+    # Pagos - USER
+    - path: /payments/create
+      method: POST
+      role: USER
+    - path: /payments/user/**
+      method: GET
+      role: USER
