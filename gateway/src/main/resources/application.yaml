@@ -21,6 +21,14 @@ spring:
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+        - id: qv-ms-plans
+          uri: lb://qv-ms-plans
+          predicates:
+            - Path=/api/plans/**, /api/user-plans/**, /api/plan-history/**, /api/plan-audit/**, /admin/dashboard/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
 
 management:
   endpoints:
@@ -43,9 +51,17 @@ security:
       method: POST
     - path: /auth/refresh-token
       method: POST
+    - path: /auth/refresh-from-cookie
+      method: POST
+    - path: /auth/confirm-email
+      method: GET
     - path: /actuator/health
       method: GET
     - path: /actuator/info
+      method: GET
+    - path: /api/plans
+      method: GET
+    - path: /api/plans/**
       method: GET
   permissions:
     - path: /auth/logout
@@ -53,4 +69,64 @@ security:
       role: USER
     - path: /auth/logout
       method: POST
+      role: ADMIN
+    # CRUD planes - ADMIN
+    - path: /api/plans
+      method: POST
+      role: ADMIN
+    - path: /api/plans/**
+      method: PUT
+      role: ADMIN
+    - path: /api/plans/**
+      method: DELETE
+      role: ADMIN
+    - path: /api/plans
+      method: GET
+      role: ADMIN
+    - path: /api/plans/**
+      method: GET
+      role: ADMIN
+    - path: /api/plans/filter
+      method: GET
+      role: ADMIN
+    # Asignación - ADMIN
+    - path: /api/user-plans/assign
+      method: POST
+      role: ADMIN
+    # Adquisición - ORGANIZER
+    - path: /api/user-plans/acquire
+      method: POST
+      role: USER
+    # Renovación - ADMIN y ORGANIZER
+    - path: /api/user-plans/**/renew
+      method: PUT
+      role: ADMIN
+    - path: /api/user-plans/**/renew
+      method: PUT
+      role: USER
+    # Consulta plan de un organizador - ADMIN y ORGANIZER
+    - path: /api/user-plans/user/**
+      method: GET
+      role: ADMIN
+    - path: /api/user-plans/user/**
+      method: GET
+      role: USER
+    # Historial - ADMIN y ORGANIZER
+    - path: /api/plan-history/**
+      method: GET
+      role: ADMIN
+    - path: /api/plan-history/**
+      method: GET
+      role: USER
+
+    # Auditoría - ADMIN
+    - path: /api/plan-audit
+      method: GET
+      role: ADMIN
+    - path: /api/plan-audit/**
+      method: GET
+      role: ADMIN
+    #Dashboard
+    - path: /admin/dashboard/**
+      method: GET
       role: ADMIN
