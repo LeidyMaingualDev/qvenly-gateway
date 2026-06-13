@@ -19,8 +19,8 @@ spring:
         corsConfigurations:
           '[/**]':
             allowedOrigins:
-              - "http://localhost:4200"
-              - "http://localhost:61697"
+              - "http://localhost:4200"       # Angular dev
+              - "http://localhost:YOUR_PORT"  # Puerto alternativo si aplica
             allowedMethods:
               - GET
               - POST
@@ -80,6 +80,24 @@ spring:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
 
+        # ── Eventos e Invitaciones ─────────────────────────────────────
+        - id: qv-ms-events
+          uri: lb://qv-ms-events
+          predicates:
+            - Path=/api/events/**, /api/invitations/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
+        # ── Actividades ────────────────────────────────────────────────
+        - id: activities-service
+          uri: lb://qv-ms-activities
+          predicates:
+            - Path=/api/activities/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
 management:
   endpoints:
     web:
@@ -87,7 +105,7 @@ management:
         include: health,info
 
 jwt:
-  secret: YOUR_JWT_SECRET_BASE64  # debe ser igual al configurado en auth-service
+  secret: YOUR_JWT_SECRET_BASE64  # Debe ser igual al configurado en qv-ms-auth
 
 security:
   public-routes:
@@ -129,7 +147,8 @@ security:
     - path: /auth/logout
       method: POST
       role: ADMIN
-    # CRUD planes - ADMIN
+
+    # ── Planes — ADMIN ─────────────────────────────────────────────────
     - path: /api/plans
       method: POST
       role: ADMIN
@@ -148,54 +167,200 @@ security:
     - path: /api/plans/filter
       method: GET
       role: ADMIN
-    # Asignación - ADMIN
+
+    # ── Planes de usuario ──────────────────────────────────────────────
     - path: /api/user-plans/assign
       method: POST
       role: ADMIN
-    # Adquisición - USER
     - path: /api/user-plans/acquire
       method: POST
       role: USER
-    # Renovación - ADMIN y USER
     - path: /api/user-plans/**/renew
       method: PUT
       role: ADMIN
     - path: /api/user-plans/**/renew
       method: PUT
       role: USER
-    # Consulta plan de un organizador
     - path: /api/user-plans/user/**
       method: GET
       role: ADMIN
     - path: /api/user-plans/user/**
       method: GET
       role: USER
-    # Historial
+
+    # ── Historial y auditoría de planes ───────────────────────────────
     - path: /api/plan-history/**
       method: GET
       role: ADMIN
     - path: /api/plan-history/**
       method: GET
       role: USER
-    # Auditoría - ADMIN
     - path: /api/plan-audit
       method: GET
       role: ADMIN
     - path: /api/plan-audit/**
       method: GET
       role: ADMIN
-    # Dashboard - ADMIN
+
+    # ── Dashboard y reportes — ADMIN ───────────────────────────────────
     - path: /admin/dashboard/**
       method: GET
       role: ADMIN
-    # Report - ADMIN
     - path: /admin/report/**
       method: GET
       role: ADMIN
-    # Pagos - USER
+
+    # ── Pagos ──────────────────────────────────────────────────────────
     - path: /payments/create
       method: POST
       role: USER
     - path: /payments/user/**
       method: GET
+      role: USER
+
+    # ── Perfil de usuario ──────────────────────────────────────────────
+    - path: /auth/profile
+      method: GET
+      role: USER
+    - path: /auth/profile
+      method: GET
+      role: ADMIN
+    - path: /auth/profile
+      method: PUT
+      role: USER
+    - path: /auth/profile
+      method: PUT
+      role: ADMIN
+    - path: /auth/profile/password
+      method: PUT
+      role: USER
+    - path: /auth/profile/password
+      method: PUT
+      role: ADMIN
+    - path: /auth/profile/confirm-password
+      method: POST
+      role: USER
+    - path: /auth/profile/confirm-password
+      method: POST
+      role: ADMIN
+    - path: /auth/profile
+      method: DELETE
+      role: USER
+    - path: /auth/profile
+      method: DELETE
+      role: ADMIN
+
+    # ── Notificaciones internas ────────────────────────────────────────
+    - path: /auth/profile/notifications/**
+      method: GET
+      role: USER
+    - path: /auth/profile/notifications/**
+      method: GET
+      role: ADMIN
+    - path: /auth/profile/notifications/**
+      method: PUT
+      role: USER
+    - path: /auth/profile/notifications/**
+      method: PUT
+      role: ADMIN
+
+    # ── Eventos ────────────────────────────────────────────────────────
+    - path: /api/events
+      method: POST
+      role: USER
+    - path: /api/events
+      method: GET
+      role: USER
+    - path: /api/events
+      method: GET
+      role: ADMIN
+    - path: /api/events/**
+      method: GET
+      role: USER
+    - path: /api/events/**
+      method: GET
+      role: ADMIN
+    - path: /api/events/**
+      method: PUT
+      role: USER
+    - path: /api/events/**/publish
+      method: PATCH
+      role: USER
+    - path: /api/events/**/start
+      method: PATCH
+      role: USER
+    - path: /api/events/**/finish
+      method: PATCH
+      role: USER
+    - path: /api/events/**/cancel
+      method: PATCH
+      role: USER
+    - path: /api/events/**/audit
+      method: GET
+      role: USER
+    - path: /api/events/**/audit
+      method: GET
+      role: ADMIN
+
+    # ── Miembros del evento ────────────────────────────────────────────
+    - path: /api/events/**/members
+      method: GET
+      role: USER
+    - path: /api/events/**/members
+      method: GET
+      role: ADMIN
+    - path: /api/events/**/limits
+      method: GET
+      role: USER
+    - path: /api/events/**/members/**/role
+      method: PATCH
+      role: USER
+    - path: /api/events/**/members/**
+      method: DELETE
+      role: USER
+    - path: /api/events/**/leave
+      method: POST
+      role: USER
+
+    # ── Invitaciones ───────────────────────────────────────────────────
+    - path: /api/events/**/invitations
+      method: POST
+      role: USER
+    - path: /api/events/**/invitations/bulk
+      method: POST
+      role: USER
+    - path: /api/events/**/invitations
+      method: GET
+      role: USER
+    - path: /api/events/**/invitations
+      method: GET
+      role: ADMIN
+    - path: /api/events/**/invitations/**/cancel
+      method: PATCH
+      role: USER
+    - path: /api/invitations/accept/**
+      method: POST
+      role: USER
+    - path: /api/invitations/my
+      method: GET
+      role: USER
+
+    # ── Actividades ────────────────────────────────────────────────────
+    - path: /api/activities/**
+      method: GET
+      role: USER
+    - path: /api/activities/**
+      method: GET
+      role: ADMIN
+    - path: /api/activities/**
+      method: POST
+      role: USER
+    - path: /api/activities/**
+      method: PUT
+      role: USER
+    - path: /api/activities/**
+      method: PATCH
+      role: USER
+    - path: /api/activities/**
+      method: DELETE
       role: USER
