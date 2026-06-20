@@ -1,10 +1,8 @@
 server:
   port: 9000
-
 spring:
   application:
     name: gateway
-
   cloud:
     consul:
       host: localhost
@@ -13,24 +11,23 @@ spring:
         service-name: gateway
         health-check-path: /actuator/health
         health-check-interval: 10s
-
     gateway:
       globalcors:
         corsConfigurations:
           '[/**]':
             allowedOrigins:
-              - "http://localhost:4200"       # Angular dev
-              - "http://localhost:YOUR_PORT"  # Puerto alternativo si aplica
+              - "http://localhost:4200"
+              - "http://localhost:61697"
             allowedMethods:
               - GET
               - POST
               - PUT
               - DELETE
+              - PATCH
               - OPTIONS
             allowedHeaders:
               - "*"
             allowCredentials: true
-
       routes:
         - id: auth-service
           uri: lb://auth-service
@@ -39,15 +36,13 @@ spring:
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-
         - id: qv-ms-plans
           uri: lb://qv-ms-plans
           predicates:
-            - Path=/api/plans/**, /api/user-plans/**, /api/plan-history/**, /api/plan-audit/**, /admin/dashboard/**
+            - Path=/api/plans/**, /api/user-plans/**, /api/plan-history/**, /api/plan-audit/**, /api/notifications/**, /admin/dashboard/**
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-
         - id: qv-ms-plans-dashboard
           uri: lb://qv-ms-plans
           predicates:
@@ -55,7 +50,6 @@ spring:
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-
         - id: qv-ms-plans-report
           uri: lb://qv-ms-plans
           predicates:
@@ -63,7 +57,6 @@ spring:
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-
         - id: qv-ms-payments
           uri: lb://qv-ms-payments
           predicates:
@@ -71,7 +64,6 @@ spring:
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-
         - id: auth-oauth2
           uri: lb://auth-service
           predicates:
@@ -79,8 +71,6 @@ spring:
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-
-        # ── Eventos e Invitaciones ─────────────────────────────────────
         - id: qv-ms-events
           uri: lb://qv-ms-events
           predicates:
@@ -88,25 +78,27 @@ spring:
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-
-        # ── Actividades ────────────────────────────────────────────────
         - id: activities-service
           uri: lb://qv-ms-activities
           predicates:
-            - Path=/api/activities/**
+            - Path=/api/activities/**, /api/enrollments/**
           filters:
             - StripPrefix=0
             - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-
+        - id: qv-ms-attendance
+          uri: lb://qv-ms-attendance
+          predicates:
+            - Path=/api/qr/**, /api/attendance/**
+          filters:
+            - StripPrefix=0
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
 management:
   endpoints:
     web:
       exposure:
         include: health,info
-
 jwt:
-  secret: YOUR_JWT_SECRET_BASE64  # Debe ser igual al configurado en qv-ms-auth
-
+  secret: YOUR_JWT_SECRET_BASE64
 security:
   public-routes:
     - path: /auth/login
@@ -139,7 +131,6 @@ security:
       method: GET
     - path: /payments/webhook
       method: POST
-
   permissions:
     - path: /auth/logout
       method: POST
@@ -147,8 +138,6 @@ security:
     - path: /auth/logout
       method: POST
       role: ADMIN
-
-    # ── Planes — ADMIN ─────────────────────────────────────────────────
     - path: /api/plans
       method: POST
       role: ADMIN
@@ -167,8 +156,9 @@ security:
     - path: /api/plans/filter
       method: GET
       role: ADMIN
-
-    # ── Planes de usuario ──────────────────────────────────────────────
+    - path: /api/user-plans/plan/**
+      method: GET
+      role: ADMIN
     - path: /api/user-plans/assign
       method: POST
       role: ADMIN
@@ -187,8 +177,6 @@ security:
     - path: /api/user-plans/user/**
       method: GET
       role: USER
-
-    # ── Historial y auditoría de planes ───────────────────────────────
     - path: /api/plan-history/**
       method: GET
       role: ADMIN
@@ -201,24 +189,30 @@ security:
     - path: /api/plan-audit/**
       method: GET
       role: ADMIN
-
-    # ── Dashboard y reportes — ADMIN ───────────────────────────────────
+    - path: /api/notifications/**
+      method: GET
+      role: USER
+    - path: /api/notifications/**
+      method: GET
+      role: ADMIN
+    - path: /api/notifications/**
+      method: PUT
+      role: USER
+    - path: /api/notifications/**
+      method: PUT
+      role: ADMIN
     - path: /admin/dashboard/**
       method: GET
       role: ADMIN
     - path: /admin/report/**
       method: GET
       role: ADMIN
-
-    # ── Pagos ──────────────────────────────────────────────────────────
     - path: /payments/create
       method: POST
       role: USER
     - path: /payments/user/**
       method: GET
       role: USER
-
-    # ── Perfil de usuario ──────────────────────────────────────────────
     - path: /auth/profile
       method: GET
       role: USER
@@ -249,8 +243,6 @@ security:
     - path: /auth/profile
       method: DELETE
       role: ADMIN
-
-    # ── Notificaciones internas ────────────────────────────────────────
     - path: /auth/profile/notifications/**
       method: GET
       role: USER
@@ -263,8 +255,9 @@ security:
     - path: /auth/profile/notifications/**
       method: PUT
       role: ADMIN
-
-    # ── Eventos ────────────────────────────────────────────────────────
+    - path: /auth/users/**
+      method: GET
+      role: ADMIN
     - path: /api/events
       method: POST
       role: USER
@@ -301,8 +294,6 @@ security:
     - path: /api/events/**/audit
       method: GET
       role: ADMIN
-
-    # ── Miembros del evento ────────────────────────────────────────────
     - path: /api/events/**/members
       method: GET
       role: USER
@@ -321,46 +312,10 @@ security:
     - path: /api/events/**/leave
       method: POST
       role: USER
-
-    # ── Invitaciones ───────────────────────────────────────────────────
     - path: /api/events/**/invitations
       method: POST
       role: USER
     - path: /api/events/**/invitations/bulk
       method: POST
       role: USER
-    - path: /api/events/**/invitations
-      method: GET
-      role: USER
-    - path: /api/events/**/invitations
-      method: GET
-      role: ADMIN
-    - path: /api/events/**/invitations/**/cancel
-      method: PATCH
-      role: USER
-    - path: /api/invitations/accept/**
-      method: POST
-      role: USER
-    - path: /api/invitations/my
-      method: GET
-      role: USER
-
-    # ── Actividades ────────────────────────────────────────────────────
-    - path: /api/activities/**
-      method: GET
-      role: USER
-    - path: /api/activities/**
-      method: GET
-      role: ADMIN
-    - path: /api/activities/**
-      method: POST
-      role: USER
-    - path: /api/activities/**
-      method: PUT
-      role: USER
-    - path: /api/activities/**
-      method: PATCH
-      role: USER
-    - path: /api/activities/**
-      method: DELETE
-      role: USER
+    -
