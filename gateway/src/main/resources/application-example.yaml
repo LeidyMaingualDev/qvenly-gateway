@@ -318,4 +318,41 @@ security:
     - path: /api/events/**/invitations/bulk
       method: POST
       role: USER
-    -
+    
+     # Crear encuesta (solo organizador = USER)
+    - path: /api/events/**/surveys
+      method: POST
+      role: USER
+    # Listar encuestas del evento
+    - path: /api/events/**/surveys
+      method: GET
+      role: USER
+    - path: /api/events/**/surveys
+      method: GET
+      role: USER
+    # Ver detalle/previsualizar encuesta
+    - path: /api/events/**/surveys/**
+      method: GET
+      role: USER
+    - path: /api/events/**/surveys/**
+      method: GET
+      role: USER
+    #  Publicar encuesta
+    - path: /api/events/**/surveys/**/publish
+      method: PATCH
+      role: USER
+    #  Cancelar encuesta
+    - path: /api/events/**/surveys/**/cancel
+      method: PATCH
+      role: USER
+    # Responder encuesta
+    - path: /api/events/**/surveys/**/responses
+      method: POST
+      role: USER
+    #  Ver resultados
+    - path: /api/events/**/surveys/**/results
+      method: GET
+      role: USER
+    - path: /api/events/**/surveys/**/results
+      method: GET
+      role: USER
