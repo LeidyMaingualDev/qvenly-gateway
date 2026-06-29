@@ -356,3 +356,11 @@ security:
     - path: /api/events/**/surveys/**/results
       method: GET
       role: USER
+      # Eliminar encuesta (solo DRAFT, CANCELLED, CLOSED)
+    - path: /api/events/**/surveys/**
+      method: DELETE
+      role: USER
+    # Editar encuesta en DRAFT
+    - path: /api/events/**/surveys/**
+      method: PUT
+      role: USER
